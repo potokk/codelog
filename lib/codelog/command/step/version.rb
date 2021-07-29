@@ -10,6 +10,7 @@ module Codelog
         UNRELEASED_LOGS_PATH = 'changelogs/unreleased'.freeze
         CONFIG_FILE_PATH = 'changelogs/codelog.yml'.freeze
         RELEASES_PATH = 'changelogs/releases'.freeze
+        PREFIX_CATEGORY = 'Задачи'.freeze
 
         def initialize(version, release_date, outputter)
           abort(Codelog::Message::Error.missing_config_file) unless config_file_exists?
@@ -48,11 +49,34 @@ module Codelog
 
         def changes_hash
           change_files_paths = Dir["#{UNRELEASED_LOGS_PATH}/*.yml"]
+
           change_files_paths.inject({}) do |all_changes, change_file|
             changes_per_category = YAML.load_file(change_file)
-            all_changes.merge!(changes_per_category) do |category, changes, changes_to_be_added|
-              changes | changes_to_be_added
+            task_prefix = begin
+              changes_per_category[PREFIX_CATEGORY]
+                   .flatten
+                   .select { |str| !str.nil? && !str.empty? }
+                   .map { |str| str.match(/((PTK)|(APP)|(ptk)|(app))-\d+\Z/).to_s }
+                   .select { |str| !str.nil? && !str.empty? }
+                   .join(', ')
+            rescue
+              ''
             end
+
+            changes_per_category.each do |category, entries|
+              all_changes[category] ||= []
+              next if entries.nil? || entries.empty?
+
+              entries = entries.select { |str| !str.nil? && !str.empty? }
+              next if entries.empty?
+
+              if category != PREFIX_CATEGORY && !task_prefix.empty?
+                entries = entries.map { |entry| [task_prefix, entry].join(' - ') }
+              end
+              all_changes[category] += entries
+            end
+
+            all_changes
           end
         rescue Psych::SyntaxError => error
           abort(Codelog::Message::Error.could_not_parse_yaml(error))
